@@ -1,0 +1,81 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:14-alpine
+    container_name: fitarena_db
+    environment:
+      POSTGRES_USER: fitarena_user
+      POSTGRES_PASSWORD: fitarena_pass
+      POSTGRES_DB: fitarena_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - fitarena_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fitarena_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Application
+  api:
+    build: ../backend
+    container_name: fitarena_api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://fitarena_user:fitarena_pass@db:5432/fitarena_db
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    volumes:
+      - ../data:/app/data
+      - ../backend/logs:/app/logs
+      - ../backend/models:/app/models
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - fitarena_network
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Jupyter Notebook (Optional for development)
+  jupyter:
+    build: ../backend
+    container_name: fitarena_jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      DATABASE_URL: postgresql://fitarena_user:fitarena_pass@db:5432/fitarena_db
+    volumes:
+      - ../backend/notebooks:/app/notebooks
+      - ../data:/app/data
+      - ../backend/src:/app/src
+    depends_on:
+      - db
+    networks:
+      - fitarena_network
+    command: jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token='' --NotebookApp.password=''
+
+  # Vue.js Frontend
+  frontend:
+    build: ../frontend
+    container_name: fitarena_frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    networks:
+      - fitarena_network
+    environment:
+      VUE_APP_API_BASE_URL: http://api:8000/api/v1
+
+volumes:
+  postgres_data:
+
+networks:
+  fitarena_network:
+    driver: bridge
